@@ -1,0 +1,6 @@
+{
+  "name": "Aura Weather",
+  "description": "An accessible weather application for the visually impaired with AI-powered forecasting and radar summaries.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": []
+}

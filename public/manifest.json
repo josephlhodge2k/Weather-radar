@@ -1,0 +1,12 @@
+{
+  "name": "Aura Weather",
+  "short_name": "Aura",
+  "description": "An accessible weather application for the visually impaired.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#0284c7",
+  "dir": "ltr",
+  "lang": "en-US",
+  "orientation": "portrait"
+}
