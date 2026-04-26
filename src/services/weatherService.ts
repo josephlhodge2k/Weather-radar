@@ -15,101 +15,6 @@ const STATE_ABBR: Record<string, string> = {
   'Virginia': 'VA', 'Washington': 'WA', 'West Virginia': 'WV', 'Wisconsin': 'WI', 'Wyoming': 'WY'
 };
 
-export async function fetchHistorical(lat: number, lon: number): Promise<{ 
-  tempMax: number, 
-  tempMin: number, 
-  recordMax: number, 
-  recordMin: number,
-  recordMaxYear: number,
-  recordMinYear: number,
-  date: string 
-}> {
-  try {
-    const now = new Date();
-    const month = now.getUTCMonth() + 1;
-    const day = now.getUTCDate();
-    
-    // 1. Fetch exactly one year ago
-    const oneYearAgo = new Date();
-    oneYearAgo.setUTCFullYear(oneYearAgo.getUTCFullYear() - 1);
-    const dateStr = oneYearAgo.toISOString().split('T')[0];
-    
-    // 2. Fetch record context from a wider range (1980 - present)
-    // Reducing range to 1980 to ensure faster response and avoid API limits/timeouts
-    const startYear = 1980;
-    const endYear = now.getUTCFullYear() - 1;
-    
-    // Using timezone=UTC to ensure consistency with our UTC-based date matching
-    const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&start_date=${startYear}-01-01&end_date=${endYear}-12-31&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=UTC`;
-    
-    const response = await fetch(url).catch(err => {
-      console.warn("Historical API network error:", err);
-      return null;
-    });
-    
-    if (!response || !response.ok) {
-      if (response) console.warn("Historical API error status:", response.status);
-      return { tempMax: 0, tempMin: 0, recordMax: 0, recordMin: 0, recordMaxYear: 0, recordMinYear: 0, date: '' };
-    }
-    const data = await response.json();
-    
-    const daily = data.daily;
-    if (!daily || !daily.time) {
-      return { tempMax: 0, tempMin: 0, recordMax: 0, recordMin: 0, recordMaxYear: 0, recordMinYear: 0, date: '' };
-    }
-
-    let tempMax1y = 0;
-    let tempMin1y = 0;
-    
-    let recordMax = -999;
-    let recordMaxYear = 0;
-    let recordMin = 999;
-    let recordMinYear = 0;
-
-    const targetMonthDay = `-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-
-    for (let i = 0; i < daily.time.length; i++) {
-      const time = daily.time[i];
-      if (time.endsWith(targetMonthDay)) {
-        const tMax = daily.temperature_2m_max[i];
-        const tMin = daily.temperature_2m_min[i];
-        
-        if (tMax === null || tMax === undefined || tMin === null || tMin === undefined) continue;
-
-        const year = parseInt(time.split('-')[0]);
-
-        if (year === oneYearAgo.getUTCFullYear()) {
-          tempMax1y = Math.round(tMax);
-          tempMin1y = Math.round(tMin);
-        }
-
-        if (tMax > recordMax) {
-          recordMax = tMax;
-          recordMaxYear = year;
-        }
-        if (tMin < recordMin) {
-          recordMin = tMin;
-          recordMinYear = year;
-        }
-      }
-    }
-    
-    return {
-      tempMax: tempMax1y || (recordMax !== -999 ? Math.round(recordMax) : 0),
-      tempMin: tempMin1y || (recordMin !== 999 ? Math.round(recordMin) : 0),
-      recordMax: recordMax !== -999 ? Math.round(recordMax) : 0,
-      recordMin: recordMin !== 999 ? Math.round(recordMin) : 0,
-      recordMaxYear,
-      recordMinYear,
-      date: dateStr
-    };
-  } catch (e) {
-    console.error("Historical fetch failed:", e);
-    return { tempMax: 0, tempMin: 0, recordMax: 0, recordMin: 0, recordMaxYear: 0, recordMinYear: 0, date: '' };
-  }
-}
-
-// Helper to check if a response is from NWS and successful
 async function tryNWS(lat: number, lon: number): Promise<WeatherData | null> {
   try {
     // 1. Get metadata for point
@@ -136,13 +41,13 @@ async function tryNWS(lat: number, lon: number): Promise<WeatherData | null> {
 
     const fetchOptions = { headers: { 'User-Agent': USER_AGENT, 'Accept': 'application/geo+json' } };
 
-    const [obsStationsRes, dailyRes, hourlyRes, alertsRes, historical] = await Promise.all([
+    const [obsStationsRes, dailyRes, hourlyRes, alertsRes] = await Promise.all([
       fetch(observationStationsUrl, fetchOptions).catch(() => null),
       fetch(dailyForecastUrl, fetchOptions).catch(() => null),
       fetch(hourlyForecastUrl, fetchOptions).catch(() => null),
-      fetch(`https://api.weather.gov/alerts/active?point=${lat.toFixed(4)},${lon.toFixed(4)}`, fetchOptions).catch(() => null),
-      fetchHistorical(lat, lon)
+      fetch(`https://api.weather.gov/alerts/active?point=${lat.toFixed(4)},${lon.toFixed(4)}`, fetchOptions).catch(() => null)
     ]);
+
 
     if (!obsStationsRes?.ok || !dailyRes?.ok || !hourlyRes?.ok) return null;
 
@@ -235,8 +140,7 @@ async function tryNWS(lat: number, lon: number): Promise<WeatherData | null> {
         precipitationSum: dailyPrecSum,
         weatherCode: dailyCodes,
       },
-      alerts,
-      historical: historical.date ? historical : undefined
+      alerts
     };
   } catch (e) {
     console.warn("NWS service currently unavailable, falling back to Open-Meteo:", e);
@@ -246,11 +150,14 @@ async function tryNWS(lat: number, lon: number): Promise<WeatherData | null> {
 
 function mapNWSToCode(desc: string): number {
   const d = desc.toLowerCase();
+  if (d.includes('tornado')) return 99;
+  if (d.includes('hurricane') || d.includes('tropical storm')) return 95;
   if (d.includes('thunderstorm')) return 95;
+  if (d.includes('blizzard') || d.includes('heavy snow')) return 75;
+  if (d.includes('snow')) return 73;
   if (d.includes('heavy rain')) return 65;
   if (d.includes('rain')) return 63;
   if (d.includes('drizzle')) return 51;
-  if (d.includes('snow')) return 73;
   if (d.includes('fog')) return 45;
   if (d.includes('cloudy')) return 3;
   if (d.includes('partly')) return 2;
@@ -266,10 +173,7 @@ export async function fetchWeather(lat: number, lon: number): Promise<WeatherDat
   // Fallback to Open-Meteo
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,snowfall,weather_code,wind_speed_10m,wind_direction_10m&hourly=temperature_2m,precipitation_probability,weather_code&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=auto&forecast_days=10`;
 
-  const [response, historical] = await Promise.all([
-    fetch(url),
-    fetchHistorical(lat, lon)
-  ]);
+  const response = await fetch(url);
   
   if (!response.ok) throw new Error('Failed to fetch weather data');
   
@@ -303,8 +207,7 @@ export async function fetchWeather(lat: number, lon: number): Promise<WeatherDat
       temperature2mMin: data.daily.temperature_2m_min,
       precipitationSum: data.daily.precipitation_sum,
       weatherCode: data.daily.weather_code,
-    },
-    historical: historical.date ? historical : undefined
+    }
   };
 }
 
@@ -349,6 +252,16 @@ export async function moveInDirection(lat: number, lon: number, direction: 'nort
   }
 }
 
+function getDescriptiveFallback(lat: number, lon: number): string {
+  // Broad geographic fallbacks
+  if (lon < -20 && lon > -90 && lat > -60 && lat < 70) return "the Atlantic Ocean";
+  if (lon < -170 || lon > 120) return "the Pacific Ocean";
+  if (lon > -100 && lon < -80 && lat > 24 && lat < 30) return "the Gulf of Mexico";
+  if (lat > 41 && lat < 49 && lon > -92 && lon < -76) return "the Great Lakes region";
+  
+  return `Region at ${Math.abs(lat).toFixed(1)} ${lat >= 0 ? 'North' : 'South'}, ${Math.abs(lon).toFixed(1)} ${lon >= 0 ? 'East' : 'West'}`;
+}
+
 export async function reverseGeocode(lat: number, lon: number): Promise<{ name: string; state?: string }> {
   // Use Nominatim (OSM) for reverse geocoding
   const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
@@ -356,15 +269,17 @@ export async function reverseGeocode(lat: number, lon: number): Promise<{ name: 
     const response = await fetch(url, { 
       headers: { 
         'Accept-Language': 'en',
-        'User-Agent': 'AuraWeatherApp/1.0' 
+        'User-Agent': USER_AGENT 
       } 
     });
     if (!response.ok) throw new Error('Reverse geocoding failed');
     const data = await response.json();
     const addr = data.address;
     
-    // Prefer city-level names, then fallback to county/state
-    const city = addr.city || addr.town || addr.village || addr.hamlet || addr.suburb || addr.neighbourhood || addr.municipality || addr.locality || addr.city_district || addr.isolated_dwelling || addr.croft || addr.allotments;
+    // Prefer city-level names, then water bodies, then fallback to county/state
+    const city = addr.city || addr.town || addr.village || addr.hamlet || addr.suburb || addr.neighbourhood || addr.municipality || addr.locality || addr.city_district || addr.isolated_dwelling || addr.croft || addr.allotments || addr.quarter;
+    const water = addr.water || addr.sea || addr.ocean || addr.river || addr.bay || addr.strait || addr.fjord || addr.lagoon || addr.reservoir || addr.pond || addr.lake || addr.canal || addr.stream || addr.coastline;
+    const feature = addr.natural || addr.place || addr.tourism || addr.leisure || addr.park || addr.national_park || addr.forest || addr.wood || addr.mountain_range || addr.beach;
     const county = addr.county;
     const state = addr.state;
     const country = addr.country;
@@ -372,17 +287,35 @@ export async function reverseGeocode(lat: number, lon: number): Promise<{ name: 
     const stateDisplay = state ? (STATE_ABBR[state] || state) : '';
 
     const parts: string[] = [];
-    if (city) parts.push(city);
-    if (county) parts.push(county);
+    
+    if (city) {
+      parts.push(city);
+    } else if (water) {
+      parts.push(water);
+    } else if (feature) {
+      parts.push(feature);
+    }
+
+    if (county && !water && !feature) parts.push(county);
     if (stateDisplay) parts.push(stateDisplay);
     if (parts.length === 0 && country) parts.push(country);
 
-    let resName = parts.length > 0 ? parts.join(', ') : (data.display_name || `Coordinates ${lat.toFixed(2)}, ${lon.toFixed(2)}`);
+    let resName = parts.length > 0 ? parts.join(', ') : '';
+    
+    // Fallback if parts are empty
+    if (!resName && data.display_name) {
+      // Clean up display name if it's too long
+      resName = data.display_name.split(',').slice(0, 3).join(',').trim();
+    }
+
+    if (!resName) {
+      resName = getDescriptiveFallback(lat, lon);
+    }
     if (resName.length > 100) resName = resName.substring(0, 97) + '...';
 
     return { name: resName, state };
   } catch (e) {
-    return { name: `Coordinates ${lat.toFixed(2)}, ${lon.toFixed(2)}` };
+    return { name: getDescriptiveFallback(lat, lon) };
   }
 }
 

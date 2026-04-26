@@ -4,20 +4,20 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { EyeOff, AlertTriangle, CloudOff, Loader2, Zap, CloudRain, Radar } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { EyeOff, AlertTriangle, CloudOff, Loader2, Zap, CloudRain, Radar, Volume2 } from 'lucide-react';
 import { fetchWeather, reverseGeocode, moveInDirection } from './services/weatherService';
 import { useLocation } from './hooks/useLocation';
 import { useHotkeys } from './hooks/useHotkeys';
 import { WeatherData } from './types';
 import { WeatherCard } from './components/WeatherCard';
 import { RadarSummary } from './components/RadarSummary';
-import { HistoricalView } from './components/HistoricalView';
 import { ChatBox } from './components/ChatBox';
 import { LocationSearch } from './components/LocationSearch';
 import { CityNavigator } from './components/CityNavigator';
 import { PermissionGuard } from './components/PermissionGuard';
 import { SettingsView } from './components/SettingsView';
+import { MonitoringView, MonitorSettings } from './components/MonitoringView';
 import { cn } from './lib/utils';
 import { getWeatherDescription } from './services/weatherService';
 
@@ -32,7 +32,17 @@ export default function App() {
   const [errorWeather, setErrorWeather] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const [voiceEnabled, setVoiceEnabled] = useState(false);
-  const [activeTab, setActiveTab] = useState<'weather' | 'settings'>('weather');
+  const [activeTab, setActiveTab] = useState<'weather' | 'sentry' | 'settings'>('weather');
+  const [monitorSettings, setMonitorSettings] = useState<MonitorSettings>(() => {
+    const saved = localStorage.getItem('aura_monitor_settings');
+    return saved ? JSON.parse(saved) : { radius: 100, interval: 15 };
+  });
+  const [isMonitoring, setIsMonitoring] = useState(() => {
+    return localStorage.getItem('aura_monitoring_active') === 'true';
+  });
+  const [lastScanTime, setLastScanTime] = useState<Date | null>(null);
+  const monitorIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   const [moveDistance, setMoveDistance] = useState(() => {
     const saved = localStorage.getItem('aura_move_distance');
     return saved ? parseInt(saved, 10) : 3;
@@ -40,6 +50,14 @@ export default function App() {
   const [scanRadius, setScanRadius] = useState(() => {
     const saved = localStorage.getItem('aura_scan_radius');
     return saved ? parseInt(saved, 10) : 600;
+  });
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoiceURI, setSelectedVoiceURI] = useState(() => {
+    return localStorage.getItem('aura_voice_uri') || null;
+  });
+  const [speechRate, setSpeechRate] = useState(() => {
+    const saved = localStorage.getItem('aura_speech_rate');
+    return saved ? parseFloat(saved) : 1;
   });
   
   const lastMoveAnnouncement = useRef('');
@@ -55,6 +73,119 @@ export default function App() {
     localStorage.setItem('aura_scan_radius', miles.toString());
     speak(`Radar scan radius set to ${miles} miles.`);
   };
+
+  const handleSpeechRateChange = (rate: number) => {
+    setSpeechRate(rate);
+    localStorage.setItem('aura_speech_rate', rate.toString());
+    // Small delay to ensure state is updated before speaking
+    setTimeout(() => {
+      speak(`Speech rate set to ${rate}.`);
+    }, 50);
+  };
+
+  useEffect(() => {
+    const loadVoices = () => {
+      const availableVoices = window.speechSynthesis.getVoices();
+      if (availableVoices.length > 0) {
+        setVoices(availableVoices);
+        // If no voice is selected, pick a default one (prefer English)
+        if (!selectedVoiceURI) {
+          // Prefer a clear, common English voice as default
+          const defaultVoice = availableVoices.find(v => v.name.includes('Microsoft David') || v.name.includes('Google US English') || v.lang === 'en-US') || 
+                               availableVoices.find(v => v.lang.startsWith('en')) || 
+                               availableVoices[0];
+          if (defaultVoice) {
+            setSelectedVoiceURI(defaultVoice.voiceURI);
+            localStorage.setItem('aura_voice_uri', defaultVoice.voiceURI);
+          }
+        }
+      }
+    };
+
+    loadVoices();
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+  }, []);
+
+  const handleVoiceChange = (uri: string) => {
+    setSelectedVoiceURI(uri);
+    localStorage.setItem('aura_voice_uri', uri);
+    // Brief test of the new voice
+    const foundVoice = voices.find(v => v.voiceURI === uri);
+    if (foundVoice) {
+      const utterance = new SpeechSynthesisUtterance("Voice updated.");
+      utterance.voice = foundVoice;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  const handleMonitorSettingsChange = (settings: MonitorSettings) => {
+    setMonitorSettings(settings);
+    localStorage.setItem('aura_monitor_settings', JSON.stringify(settings));
+    const locationMsg = settings.location ? ` centered at ${settings.location.name}` : " at home location";
+    speak(`Monitoring perimeter set to ${settings.radius} miles${locationMsg}, updated every ${settings.interval} minutes.`);
+  };
+
+  const onMonitorLocationSearch = async (query: string): Promise<{ name: string; lat: number; lon: number } | null> => {
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&addressdetails=1`;
+      const response = await fetch(url, { headers: { 'User-Agent': 'AuraWeatherApp/1.0' } });
+      const data = await response.json();
+      if (data && data.length > 0) {
+        const item = data[0];
+        const addr = item.address;
+        const name = addr.city || addr.town || addr.village || addr.postcode || item.display_name.split(',')[0];
+        return {
+          name: `${name}${addr.state ? ', ' + addr.state : ''}`,
+          lat: parseFloat(item.lat),
+          lon: parseFloat(item.lon)
+        };
+      }
+    } catch (e) {
+      console.error("Monitoring search error:", e);
+    }
+    return null;
+  };
+
+  const toggleMonitoring = () => {
+    const newState = !isMonitoring;
+    setIsMonitoring(newState);
+    localStorage.setItem('aura_monitoring_active', newState.toString());
+    if (newState) {
+      const locationMsg = monitorSettings.location ? ` near ${monitorSettings.location.name}` : "";
+      speak(`Storm Sentry activated. Monitoring a ${monitorSettings.radius} mile radius${locationMsg} every ${monitorSettings.interval} minutes.`);
+      // Run first scan immediately
+      handleStormScan(monitorSettings.radius, true);
+    } else {
+      speak("Storm Sentry deactivated.");
+      if (monitorIntervalRef.current) {
+        clearInterval(monitorIntervalRef.current);
+        monitorIntervalRef.current = null;
+      }
+    }
+  };
+
+  // Setup monitoring interval
+  useEffect(() => {
+    if (isMonitoring) {
+      if (monitorIntervalRef.current) clearInterval(monitorIntervalRef.current);
+      
+      monitorIntervalRef.current = setInterval(() => {
+        handleStormScan(monitorSettings.radius, true);
+      }, monitorSettings.interval * 60 * 1000);
+    } else {
+      if (monitorIntervalRef.current) {
+        clearInterval(monitorIntervalRef.current);
+        monitorIntervalRef.current = null;
+      }
+    }
+
+    return () => {
+      if (monitorIntervalRef.current) clearInterval(monitorIntervalRef.current);
+    };
+  }, [isMonitoring, monitorSettings.interval, monitorSettings.radius, monitorSettings.location]);
 
   // Fallback to geoLoc if no custom location is set
   const activeLoc = customLocation || (geoLoc ? { ...geoLoc, name: 'Detecting City...' } : null);
@@ -120,15 +251,19 @@ export default function App() {
     }
   }, [activeLoc?.lat, activeLoc?.lon]);
 
-  const speak = (text: string) => {
-    if (voiceEnabled && 'speechSynthesis' in window) {
+  const speak = (text: string, force = false) => {
+    // Background monitoring sweeps should always speak if significant, 
+    // but users might want to know the system is scanning.
+    if ((voiceEnabled || force) && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1;
+      if (selectedVoiceURI) {
+        const voice = voices.find(v => v.voiceURI === selectedVoiceURI);
+        if (voice) utterance.voice = voice;
+      }
+      utterance.rate = speechRate;
       utterance.pitch = 1;
       window.speechSynthesis.speak(utterance);
-      // We don't set the announcement for the screen reader live region if voice is active
-      // to prevents double speaking for screen reader users.
     } else {
       setAnnouncement(text);
     }
@@ -151,50 +286,95 @@ export default function App() {
 
   const handlePrecipitationCheck = () => {
     if (!weather) return speak("Weather data not yet available.");
-    const currentRain = weather.current.precipitation;
+    const prec = weather.current.precipitation;
+    const isSnow = weather.current.weatherCode >= 71 && weather.current.weatherCode <= 86;
     const prob = weather.hourly.precipitationProbability[0];
     const windDir = getWindDirectionName(weather.current.windDirection10m);
     let text = "";
-    if (currentRain > 0) {
-      text = `It is currently raining with ${currentRain} inches of precipitation. The weather is moving from the ${windDir}.`;
+    if (prec > 0) {
+      const type = isSnow ? "snowfall" : "rain";
+      text = `It is currently ${isSnow ? 'snowing' : 'raining'} with ${prec} inches of ${type}. The weather is moving from the ${windDir}.`;
     } else if (prob > 30) {
-      text = `Radar shows precipitation approaching from the ${windDir} with a ${prob} percent probability.`;
+      const typeHint = isSnow ? "snowfall" : "precipitation";
+      text = `Radar shows ${typeHint} approaching from the ${windDir} with a ${prob} percent probability.`;
     } else {
       text = `The radar is clear within a 50 mile radius. Any incoming weather would likely approach from the ${windDir} based on current wind patterns.`;
     }
     speak(text);
   };
 
-  const handleStormScan = async () => {
-    if (!activeLoc) return speak("Scanning system unavailable without location.");
+  const handleStormScan = async (overrideRadius?: number, silentIfClear = false) => {
+    // If it's a silent scan (from monitoring), check if we have a monitoring-specific location
+    const scanLoc = (silentIfClear && monitorSettings.location) ? monitorSettings.location : activeLoc;
+
+    if (!scanLoc) {
+      if (!silentIfClear) speak("Scanning system unavailable without location.");
+      return;
+    }
     
-    speak(`Initiating ${scanRadius} mile radial radar sweep. Scanning all horizons...`);
+    const radius = overrideRadius || scanRadius;
+    if (!silentIfClear) {
+      speak(`Initiating ${radius} mile radial radar sweep. Scanning all horizons...`);
+    }
     
+    setLastScanTime(new Date());
+
+    if (silentIfClear) {
+      // In silent mode, we don't announce the START of the scan to avoid constant chatter,
+      // but we MUST ensure the results are announced if found.
+      console.log(`Storm Sentry performing periodic check for ${scanLoc.name}...`);
+    }
+
     const DEG_PER_MILE = 1 / 69;
-    const cosLat = Math.cos(activeLoc.lat * Math.PI / 180);
+    const cosLat = Math.cos(scanLoc.lat * Math.PI / 180);
     
     // Divide the target scan radius into intervals to find the closest hits first
-    const intervals = scanRadius <= 200 ? [scanRadius] : [100, Math.min(300, scanRadius), scanRadius];
+    const intervals: number[] = [];
+    for (let d = 50; d <= radius; d += 150) {
+      intervals.push(d);
+    }
+    if (intervals.length === 0 || intervals[intervals.length - 1] !== radius) {
+      intervals.push(radius);
+    }
+
     const directions = [
       { name: 'North', dLat: 1, dLon: 0 },
+      { name: 'North-North-East', dLat: 0.923, dLon: 0.382 },
       { name: 'North-East', dLat: 0.707, dLon: 0.707 },
+      { name: 'East-North-East', dLat: 0.382, dLon: 0.923 },
       { name: 'East', dLat: 0, dLon: 1 },
+      { name: 'East-South-East', dLat: -0.382, dLon: 0.923 },
       { name: 'South-East', dLat: -0.707, dLon: 0.707 },
+      { name: 'South-South-East', dLat: -0.923, dLon: 0.382 },
       { name: 'South', dLat: -1, dLon: 0 },
+      { name: 'South-South-West', dLat: -0.923, dLon: -0.382 },
       { name: 'South-West', dLat: -0.707, dLon: -0.707 },
+      { name: 'West-South-West', dLat: -0.382, dLon: -0.923 },
       { name: 'West', dLat: 0, dLon: -1 },
-      { name: 'North-West', dLat: 0.707, dLon: -0.707 }
+      { name: 'West-North-West', dLat: 0.382, dLon: -0.923 },
+      { name: 'North-West', dLat: 0.707, dLon: -0.707 },
+      { name: 'North-North-West', dLat: 0.923, dLon: -0.382 }
     ];
 
-    let foundPrecipitation = null;
+    let foundSignificantWeather = null;
 
     for (const dist of intervals) {
       const scanResults = await Promise.all(directions.map(async (dir) => {
-        const scanLat = activeLoc.lat + (dir.dLat * dist * DEG_PER_MILE);
-        const scanLon = activeLoc.lon + (dir.dLon * dist * DEG_PER_MILE / cosLat);
+        const scanLat = scanLoc.lat + (dir.dLat * dist * DEG_PER_MILE);
+        const scanLon = scanLoc.lon + (dir.dLon * dist * DEG_PER_MILE / cosLat);
         try {
           const data = await fetchWeather(scanLat, scanLon);
-          if (data.current.precipitation > 0) {
+          // Check for significant weather:
+          // 1. Precipitation (rain/snow)
+          // 2. Weather code >= 51 (drizzle/rain/snow/storm)
+          // 3. High wind speeds (> 25 mph)
+          // 4. Active alerts
+          const isSignificant = data.current.precipitation > 0 || 
+                               data.current.weatherCode >= 51 || 
+                               data.current.windSpeed10m >= 25 ||
+                               (data.alerts && data.alerts.length > 0);
+
+          if (isSignificant) {
             return { dist, dir: dir.name, lat: scanLat, lon: scanLon, data };
           }
         } catch (e) { return null; }
@@ -203,18 +383,41 @@ export default function App() {
 
       const hits = scanResults.filter(r => r !== null);
       if (hits.length > 0) {
-        hits.sort((a, b) => b!.data.current.precipitation - a!.data.current.precipitation);
-        foundPrecipitation = hits[0];
+        // Sort by severity: weatherCode first, then precipitation, then wind, then alerts
+        hits.sort((a, b) => {
+          const alertScoreA = (a!.data.alerts?.length || 0) * 50;
+          const alertScoreB = (b!.data.alerts?.length || 0) * 50;
+          const scoreA = (a!.data.current.weatherCode * 10) + (a!.data.current.precipitation * 20) + (a!.data.current.windSpeed10m / 5) + alertScoreA;
+          const scoreB = (b!.data.current.weatherCode * 10) + (b!.data.current.precipitation * 20) + (b!.data.current.windSpeed10m / 5) + alertScoreB;
+          return scoreB - scoreA;
+        });
+        foundSignificantWeather = hits[0];
         break; 
       }
     }
 
-    if (foundPrecipitation) {
-      const { lat, lon, dir, dist, data } = foundPrecipitation;
+    if (foundSignificantWeather) {
+      const { lat, lon, dir, dist, data } = foundSignificantWeather;
       const moveDir = getWindDirectionName(data.current.windDirection10m);
       
+      // Build a more descriptive condition
+      let condition = getWeatherDescription(data.current.weatherCode);
+      
+      // If there's an alert, use the most severe alert event name
+      if (data.alerts && data.alerts.length > 0) {
+        condition = data.alerts[0].event;
+      } else if (data.current.precipitation > 0) {
+        const isSnow = data.current.weatherCode >= 71 && data.current.weatherCode <= 86;
+        condition = isSnow ? 'Snow' : 'Rain';
+        if (data.current.precipitation > 0.1) condition = `Heavy ${condition}`;
+      } else if (data.current.windSpeed10m >= 25) {
+        condition = 'High Wind';
+      }
+
+      const windInfo = data.current.windSpeed10m > 25 ? ` with surface winds of ${Math.round(data.current.windSpeed10m)} mph` : '';
+      
       // OPTIMIZATION: Immediate feedback before background geocoding/prediction
-      const baseMessage = `Radar hit! Significant precipitation detected ${dist} miles to your ${dir}. Condition there is ${getWeatherDescription(data.current.weatherCode)} with ${data.current.precipitation} inches of rain. Movement is from the ${moveDir}.`;
+      const baseMessage = `Radar hit! Significant weather detected ${dist} miles to your ${dir}. Condition there is ${condition}${windInfo}. Movement is from the ${moveDir}.`;
       speak(baseMessage + " Analyzing tracking data...");
 
       // Perform tracking analysis in background
@@ -237,17 +440,40 @@ export default function App() {
           const uniqueTowns = Array.from(new Set(
             predictedTowns
               .map(t => t.name)
-              .filter(name => name && name !== cityName && !name.includes('Coordinates') && name !== 'Current Location')
+              .filter(name => {
+                if (!name || name === 'Current Location') return false;
+                if (name === cityName) return false;
+                if (name.includes('Region at')) return false;
+                // If it's a generic water body and we're already "near" that water body, skip it
+                if (cityName.includes(name) || name.includes(cityName)) return false;
+                return true;
+              })
           ));
           
-          const trackingInfo = ` Tracking update: The storm near ${cityName} is moving towards ${uniqueTowns.length > 0 ? uniqueTowns.join(' and ') : "unpopulated territory"}.`;
+          let movementDest = '';
+          if (uniqueTowns.length > 0) {
+            movementDest = `moving towards ${uniqueTowns.join(' and ')}`;
+          } else {
+            // Determine if destination is likely water or wilderness based on hit location name
+            const isWater = cityName.toLowerCase().includes('ocean') || 
+                          cityName.toLowerCase().includes('sea') || 
+                          cityName.toLowerCase().includes('lake') ||
+                          cityName.toLowerCase().includes('bay') ||
+                          cityName.toLowerCase().includes('gulf');
+            
+            movementDest = isWater ? 'moving further out over open water' : 'moving into remote geographic areas';
+          }
+
+          const trackingInfo = ` Tracking update: The ${condition.toLowerCase()} system near ${cityName} is ${movementDest}.`;
           speak(trackingInfo);
         } catch (e) {
           console.error("Tracking background error:", e);
         }
       })();
     } else {
-      speak(`Long-range sweep complete. No active storm bands detected within ${scanRadius} miles of ${activeLoc.name}. Navigation appears clear.`);
+      if (!silentIfClear) {
+        speak(`Long-range sweep complete. No active storm bands detected within ${radius} miles of ${scanLoc.name}. Navigation appears clear.`);
+      }
     }
   };
 
@@ -293,7 +519,7 @@ export default function App() {
     {
       key: 'c',
       description: 'Find nearest city with precipitation',
-      action: handleStormScan
+      action: () => handleStormScan()
     },
     {
       key: 'n',
@@ -317,9 +543,14 @@ export default function App() {
     }
   ]);
 
-  const enableVoice = () => {
-    setVoiceEnabled(true);
-    speak("Voice interface activated. Use P for precipitation, L for lightning, and C for storm scanning.");
+  const toggleVoice = () => {
+    const newState = !voiceEnabled;
+    setVoiceEnabled(newState);
+    if (newState) {
+      speak("Voice interface activated. Use P for precipitation, L for lightning, and C for storm scanning.");
+    } else {
+      window.speechSynthesis.cancel();
+    }
   };
 
   const handlePermissionsGranted = () => {
@@ -352,7 +583,9 @@ export default function App() {
                 {activeLoc ? (
                   <>
                     {activeLoc.name}
-                    {activeLoc.state && !activeLoc.name.toLowerCase().includes(activeLoc.state.toLowerCase().substring(0, 5)) && `, ${activeLoc.state}`}
+                    {activeLoc.state && activeLoc.state.toLowerCase() !== activeLoc.name.toLowerCase() && (
+                      <span className="opacity-70">, {activeLoc.state}</span>
+                    )}
                   </>
                 ) : 'Searching...'}
               </span>
@@ -368,7 +601,16 @@ export default function App() {
               activeTab === 'weather' ? "bg-zinc-800 text-sky-400 shadow-sm" : "text-zinc-500 hover:text-zinc-300"
             )}
           >
-            Monitor
+            Home
+          </button>
+          <button
+            onClick={() => setActiveTab('sentry')}
+            className={cn(
+              "px-5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+              activeTab === 'sentry' ? "bg-zinc-800 text-sky-400 shadow-sm" : "text-zinc-500 hover:text-zinc-300"
+            )}
+          >
+            Background Storm Monitoring
           </button>
           <button
             onClick={() => setActiveTab('settings')}
@@ -382,20 +624,18 @@ export default function App() {
         </nav>
         
         <div className="flex items-center gap-4">
-          {!voiceEnabled ? (
-            <button 
-              onClick={enableVoice}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg shadow-emerald-900/20"
-            >
-              <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
-              Enable Voice Interface
-            </button>
-          ) : (
-            <div className="px-4 py-2 bg-zinc-900 border border-emerald-500/50 text-emerald-400 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2">
-               <div className="w-2 h-2 rounded-full bg-emerald-500" />
-               Voice Active
-            </div>
-          )}
+          <button 
+            onClick={toggleVoice}
+            className={cn(
+              "px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg",
+              voiceEnabled 
+                ? "bg-zinc-900 border border-emerald-500 text-emerald-400 shadow-emerald-900/10" 
+                : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20"
+            )}
+          >
+            <div className={cn("w-2 h-2 rounded-full", voiceEnabled ? "bg-emerald-500 animate-pulse" : "bg-white")} />
+            {voiceEnabled ? "Voice Active" : "Enable Voice Interface"}
+          </button>
           {activeTab === 'weather' && (
             <LocationSearch 
               onLocationSelect={(lat, lon, name, state) => setCustomLocation({ lat, lon, name, state })} 
@@ -410,15 +650,15 @@ export default function App() {
         </div>
       </header>
 
-      <main id="main-content" className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-4 space-y-6">
+      <main id="main-content" className="w-full max-w-4xl mx-auto flex flex-col gap-6">
+        <div className="space-y-6">
           <AnimatePresence mode="wait">
             {activeTab === 'settings' ? (
               <motion.div
                 key="settings"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
                 className="bg-zinc-950/50 border border-zinc-800 rounded-3xl p-6 backdrop-blur-md"
               >
                 <SettingsView 
@@ -428,6 +668,28 @@ export default function App() {
                   onScanRadiusChange={handleScanRadiusChange}
                   voiceEnabled={voiceEnabled}
                   onVoiceToggle={setVoiceEnabled}
+                  voices={voices}
+                  selectedVoiceURI={selectedVoiceURI}
+                  onVoiceSelect={handleVoiceChange}
+                  speechRate={speechRate}
+                  onSpeechRateChange={handleSpeechRateChange}
+                />
+              </motion.div>
+            ) : activeTab === 'sentry' ? (
+              <motion.div
+                key="sentry"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="bg-zinc-950/50 border border-zinc-800 rounded-3xl p-6 backdrop-blur-md"
+              >
+                <MonitoringView 
+                  settings={monitorSettings}
+                  onSettingsChange={handleMonitorSettingsChange}
+                  isMonitoring={isMonitoring}
+                  onToggleMonitoring={toggleMonitoring}
+                  lastScanTime={lastScanTime}
+                  onSearchLocation={onMonitorLocationSearch}
                 />
               </motion.div>
             ) : locLoading || loadingWeather ? (
@@ -486,93 +748,81 @@ export default function App() {
                     ))}
                   </div>
                 )}
-                <WeatherCard weather={weather} />
-                <RadarSummary weather={weather} />
+                {weather && (
+                  <>
+                    <WeatherCard weather={weather} />
+                    <RadarSummary weather={weather} />
+                    <div className="mt-8">
+                      <ChatBox weather={weather} />
+                    </div>
+                  </>
+                )}
               </motion.div>
             ) : null}
           </AnimatePresence>
         </div>
 
-        <div className="lg:col-span-8 flex flex-col gap-6">
-          <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6">
-            <h2 className="text-sm font-bold mb-4 flex items-center gap-2 text-zinc-400 uppercase tracking-widest">
-              <Radar className="w-4 h-4 text-sky-600" aria-hidden="true" />
-              Intelligence Briefing
-            </h2>
-            <ChatBox weather={weather} />
-          </div>
-
-          {weather && (
-            <div className="animate-in fade-in duration-700 delay-300">
-              <HistoricalView weather={weather} />
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <StatusIcon icon={<AlertTriangle className="w-4 h-4" />} label="Travel Safety" value="Nominal" color="emerald" />
-            <StatusIcon icon={<Loader2 className="w-4 h-4" />} label="Sensor Sync" value="Verified" color="sky" />
-            <StatusIcon icon={<EyeOff className="w-4 h-4" />} label="Display Mode" value="High Contrast" color="zinc" />
-          </div>
-        </div>
-
         {/* City Navigation System */}
-        <div className="lg:col-span-12 mt-6">
-          <CityNavigator 
-            currentLoc={activeLoc ? { name: activeLoc.name, lat: activeLoc.lat, lon: activeLoc.lon, state: activeLoc.state } : null}
-            onLocationChange={setCustomLocation}
-            weatherBrief={weatherBrief || undefined}
-            onSpeak={(text) => {
-              if (voiceEnabled) {
-                speak(text);
-              }
-            }}
-            moveDistance={moveDistance}
-          />
-        </div>
+        {activeTab === 'weather' && (
+          <div className="mt-6">
+            <CityNavigator 
+              currentLoc={activeLoc ? { name: activeLoc.name, lat: activeLoc.lat, lon: activeLoc.lon, state: activeLoc.state } : null}
+              onLocationChange={setCustomLocation}
+              weatherBrief={weatherBrief || undefined}
+              onSpeak={(text) => {
+                if (voiceEnabled) {
+                  speak(text);
+                }
+              }}
+              moveDistance={moveDistance}
+            />
+          </div>
+        )}
       </main>
 
       {/* Android Style Bottom Menu */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-zinc-900/95 backdrop-blur-md border border-zinc-700/50 px-6 py-4 rounded-3xl flex gap-10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-40 transition-transform active:scale-95">
-        <button 
-          onClick={handleLightningCheck}
-          className="flex flex-col items-center gap-1.5 group"
-          aria-label="Lightning Detection"
-        >
-          <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 group-active:bg-amber-500/20 transition-colors">
-            <Zap className="w-5 h-5 text-amber-400" />
-          </div>
-          <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 group-active:text-zinc-200">Lightning Detection</span>
-        </button>
+      {activeTab === 'weather' && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-zinc-900/95 backdrop-blur-md border border-zinc-700/50 px-6 py-4 rounded-3xl flex gap-10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-40 transition-transform active:scale-95 text-center">
+          <button 
+            onClick={handleLightningCheck}
+            className="flex flex-col items-center gap-1.5 group"
+            aria-label="Lightning Detection"
+          >
+            <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 group-active:bg-amber-500/20 transition-colors">
+              <Zap className="w-5 h-5 text-amber-400" />
+            </div>
+            <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 group-active:text-zinc-200">Lightning Detection</span>
+          </button>
 
-        <button 
-          onClick={handlePrecipitationCheck}
-          className="flex flex-col items-center gap-1.5 group"
-          aria-label="Precipitation Info"
-        >
-          <div className="p-2 rounded-xl bg-sky-500/10 border border-sky-500/20 group-active:bg-sky-500/20 transition-colors">
-            <CloudRain className="w-5 h-5 text-sky-400" />
-          </div>
-          <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 group-active:text-zinc-200">Precipitation Info</span>
-        </button>
+          <button 
+            onClick={handlePrecipitationCheck}
+            className="flex flex-col items-center gap-1.5 group"
+            aria-label="Precipitation Info"
+          >
+            <div className="p-2 rounded-xl bg-sky-500/10 border border-sky-500/20 group-active:bg-sky-500/20 transition-colors">
+              <CloudRain className="w-5 h-5 text-sky-400" />
+            </div>
+            <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 group-active:text-zinc-200">Precipitation Info</span>
+          </button>
 
-        <button 
-          onClick={handleStormScan}
-          className="flex flex-col items-center gap-1.5 group"
-          aria-label="Storm Scanner"
-        >
-          <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 group-active:bg-emerald-500/20 transition-colors">
-            <Radar className="w-5 h-5 text-emerald-400" />
-          </div>
-          <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 group-active:text-zinc-200">Storm Scanner</span>
-        </button>
-      </div>
+          <button 
+            onClick={() => handleStormScan()}
+            className="flex flex-col items-center gap-1.5 group"
+            aria-label="Storm Scanner"
+          >
+            <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 group-active:bg-emerald-500/20 transition-colors">
+              <Radar className="w-5 h-5 text-emerald-400" />
+            </div>
+            <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 group-active:text-zinc-200">Storm Scanner</span>
+          </button>
+        </div>
+      )}
 
       <footer className="w-full max-w-6xl mt-12 py-8 border-t border-zinc-900 flex flex-col md:flex-row justify-between items-center gap-4 pb-24 md:pb-8">
         <div className="space-y-1">
           <p className="text-[10px] font-mono text-zinc-600 uppercase tracking-[0.2em]">Designed for accessibility • NWS & Open-Meteo Data • Aura v1.0</p>
         </div>
         <div className="flex gap-6">
-          <a href="#" className="text-[10px] font-mono text-zinc-600 hover:text-zinc-400 uppercase tracking-widest transition-colors">Safety Protocols</a>
         </div>
       </footer>
     </div>

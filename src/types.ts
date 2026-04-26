@@ -38,15 +38,6 @@ export interface WeatherData {
     weatherCode: number[];
   };
   alerts?: WeatherAlert[];
-  historical?: {
-    tempMax: number;
-    tempMin: number;
-    recordMax?: number;
-    recordMin?: number;
-    recordMaxYear?: number;
-    recordMinYear?: number;
-    date: string;
-  };
 }
 
 export interface ChatMessage {

@@ -1,5 +1,5 @@
 import { Radar, Zap, Droplets } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion } from 'framer-motion';
 import { WeatherData } from '../types';
 
 interface RadarSummaryProps {
@@ -7,7 +7,8 @@ interface RadarSummaryProps {
 }
 
 export function RadarSummary({ weather }: RadarSummaryProps) {
-  const currentRain = weather.current.precipitation;
+  const prec = weather.current.precipitation;
+  const isSnow = weather.current.weatherCode >= 71 && weather.current.weatherCode <= 86;
   const rainProb = weather.hourly.precipitationProbability[0] || 0;
   const windDirDeg = weather.current.windDirection10m;
   
@@ -20,7 +21,7 @@ export function RadarSummary({ weather }: RadarSummaryProps) {
   
   // Logic to interpret as "Nearby Detection"
   const isLightningRisk = weather.current.weatherCode >= 95;
-  const isNearbyRain = rainProb > 30 && currentRain === 0;
+  const isNearbyPrec = rainProb > 30 && prec === 0;
 
   return (
     <div className="bg-zinc-950 border-2 border-zinc-800 rounded-3xl p-6 space-y-6">
@@ -50,16 +51,16 @@ export function RadarSummary({ weather }: RadarSummaryProps) {
 
         {/* Precipitation Proximity */}
         <div className="flex items-start gap-4 p-4 bg-zinc-900 rounded-2xl border border-zinc-800">
-          <div className={currentRain > 0 ? "p-3 bg-blue-500/20 rounded-full" : isNearbyRain ? "p-3 bg-sky-500/20 rounded-full" : "p-3 bg-zinc-800 rounded-full"}>
-            <Droplets className={currentRain > 0 || isNearbyRain ? "w-6 h-6 text-blue-400 animate-pulse" : "w-6 h-6 text-zinc-600"} />
+          <div className={prec > 0 ? "p-3 bg-blue-500/20 rounded-full" : isNearbyPrec ? "p-3 bg-sky-500/20 rounded-full" : "p-3 bg-zinc-800 rounded-full"}>
+            <Droplets className={prec > 0 || isNearbyPrec ? "w-6 h-6 text-blue-400 animate-pulse" : "w-6 h-6 text-zinc-600"} />
           </div>
           <div className="flex-1">
             <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Moisture Density</h4>
             <p className="text-xs text-zinc-300 leading-relaxed">
-              {currentRain > 0 
-                ? `Active precipitation: ${currentRain} inches recorded. Storm systems moving from the ${windDir}.` 
-                : isNearbyRain 
-                  ? `High probability (${rainProb}%) of precipitation approaching from the ${windDir} within the hour.` 
+              {prec > 0 
+                ? `Active ${isSnow ? 'snowfall' : 'precipitation'}: ${prec} inches recorded. Storm systems moving from the ${windDir}.` 
+                : isNearbyPrec 
+                  ? `High probability (${rainProb}%) of ${isSnow ? 'snow' : 'precipitation'} approaching from the ${windDir} within the hour.` 
                   : `Radar shows clear skies in your immediate vicinity. Winds are currently from the ${windDir}.`}
             </p>
           </div>

@@ -85,7 +85,7 @@ export function LocationSearch({ onLocationSelect }: LocationSearchProps) {
                 <li key={`${res.id}-${res.latitude}-${res.longitude}-${index}`}>
                   <button
                     onClick={() => {
-                      const stateStr = [res.admin2, res.admin1].filter(Boolean).join(', ');
+                      const stateStr = [res.admin2, res.admin1, res.country].filter(Boolean).join(', ');
                       onLocationSelect(res.latitude, res.longitude, res.name, stateStr);
                       setQuery('');
                       setIsOpen(false);

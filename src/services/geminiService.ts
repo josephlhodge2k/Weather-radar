@@ -26,8 +26,6 @@ export async function sendMessage(
       wind: `${weather.current.windSpeed10m}mph`,
       wind_direction_deg: weather.current.windDirection10m,
       alerts: weather.alerts?.map(a => a.event),
-      historical_last_year: weather.historical ? `High ${weather.historical.tempMax}F, Low ${weather.historical.tempMin}F` : 'Not available',
-      all_time_records: weather.historical?.recordMax ? `Max: ${weather.historical.recordMax}F (${weather.historical.recordMaxYear}), Min: ${weather.historical.recordMin}F (${weather.historical.recordMinYear})` : 'Not available',
       forecast_daily: weather.daily?.time?.map((t, i) => ({
         date: t,
         max: `${weather.daily.temperature2mMax[i]}°F`,

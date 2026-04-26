@@ -1,5 +1,5 @@
 import { CloudRain, Wind, Thermometer, CloudLightning, Sun, Cloud, Snowflake } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion } from 'framer-motion';
 import { WeatherData } from '../types';
 import { getWeatherDescription } from '../services/weatherService';
 

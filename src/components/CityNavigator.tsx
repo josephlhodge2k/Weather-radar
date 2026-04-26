@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { motion } from 'motion/react';
+import { motion } from 'framer-motion';
 import { ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Compass } from 'lucide-react';
 import { moveInDirection, LocationInfo } from '../services/weatherService';
 
@@ -145,17 +145,6 @@ export const CityNavigator: React.FC<CityNavigatorProps> = ({
             <p className="text-sm text-zinc-400 italic">
               {isNavigating ? 'Calculating trajectory...' : 'Use direction controllers to explore weather patterns in neighboring regions.'}
             </p>
-          </div>
-          
-          <div className="flex gap-2">
-            <div className="flex-1 p-3 bg-zinc-900 border border-zinc-800 rounded-lg">
-              <p className="text-[9px] text-zinc-600 uppercase font-bold mb-1">State Logic</p>
-              <p className="text-xs text-zinc-300">Monitors jurisdictional boundaries automatically.</p>
-            </div>
-            <div className="flex-1 p-3 bg-zinc-900 border border-zinc-800 rounded-lg">
-              <p className="text-[9px] text-zinc-600 uppercase font-bold mb-1">Aria Live</p>
-              <p className="text-xs text-zinc-300">Propagates location changes to screen readers.</p>
-            </div>
           </div>
         </div>
       </div>
