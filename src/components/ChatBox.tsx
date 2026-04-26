@@ -58,12 +58,12 @@ export function ChatBox({ weather }: ChatBoxProps) {
 
   return (
     <div className="flex flex-col h-[500px] border-2 border-zinc-800 rounded-xl bg-zinc-950 overflow-hidden shadow-2xl">
-      <header className="p-4 border-b border-zinc-800 bg-zinc-900 flex justify-between items-center">
-        <h2 className="text-zinc-100 font-bold flex items-center gap-2" id="chat-heading">
-          <Bot className="w-5 h-5 text-sky-400" />
-          Aura Weather Assistant
+      <header className="px-4 py-3 border-b border-zinc-800 bg-zinc-900 flex justify-between items-center">
+        <h2 className="text-zinc-100 text-sm font-bold flex items-center gap-2" id="chat-heading">
+          <Bot className="w-4 h-4 text-sky-400" />
+          Aura Assistant
         </h2>
-        <span className="text-xs text-zinc-500 font-mono uppercase tracking-widest">AI Powered</span>
+        <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-[0.2em]">Active</span>
       </header>
 
       <div 

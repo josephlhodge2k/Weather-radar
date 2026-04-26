@@ -26,9 +26,27 @@ export interface WeatherData {
   };
   hourly: {
     time: string[];
+    temperature2m: number[];
     precipitationProbability: number[];
+    weatherCode: number[];
+  };
+  daily: {
+    time: string[];
+    temperature2mMax: number[];
+    temperature2mMin: number[];
+    precipitationSum: number[];
+    weatherCode: number[];
   };
   alerts?: WeatherAlert[];
+  historical?: {
+    tempMax: number;
+    tempMin: number;
+    recordMax?: number;
+    recordMin?: number;
+    recordMaxYear?: number;
+    recordMinYear?: number;
+    date: string;
+  };
 }
 
 export interface ChatMessage {

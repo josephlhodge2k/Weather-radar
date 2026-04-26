@@ -46,9 +46,9 @@ export function WeatherCard({ weather }: WeatherCardProps) {
           {getIcon(weather.current.weatherCode)}
         </div>
 
-        <div className="text-center space-y-2">
-          <p className="text-sm font-mono text-zinc-500 uppercase tracking-widest">Current Condition</p>
-          <h1 className="text-4xl font-bold text-zinc-100">{getWeatherDescription(weather.current.weatherCode)}</h1>
+        <div className="text-center space-y-1">
+          <p className="text-[9px] font-mono text-zinc-600 uppercase tracking-[0.3em]">Analysis</p>
+          <h2 className="text-3xl font-bold text-zinc-100 uppercase tracking-tight">{getWeatherDescription(weather.current.weatherCode)}</h2>
         </div>
 
         <div className="grid grid-cols-2 gap-4 w-full">
@@ -57,6 +57,12 @@ export function WeatherCard({ weather }: WeatherCardProps) {
             label="Temp" 
             value={`${Math.round(weather.current.temperature2m)}°F`} 
             alt={`Temperature is ${Math.round(weather.current.temperature2m)} degrees fahrenheit`}
+          />
+          <DetailItem 
+            icon={<Thermometer className="w-5 h-5 text-orange-400" />} 
+            label="Feels Like" 
+            value={`${Math.round(weather.current.apparentTemperature)}°F`} 
+            alt={`Feels like temperature is ${Math.round(weather.current.apparentTemperature)} degrees fahrenheit`}
           />
           <DetailItem 
             icon={<Wind className="w-5 h-5 text-sky-400" />} 

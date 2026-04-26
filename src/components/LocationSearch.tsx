@@ -4,7 +4,7 @@ import { searchLocations, GeocodingResult } from '../services/weatherService';
 import { cn } from '../lib/utils';
 
 interface LocationSearchProps {
-  onLocationSelect: (lat: number, lon: number, name: string) => void;
+  onLocationSelect: (lat: number, lon: number, name: string, state?: string) => void;
 }
 
 export function LocationSearch({ onLocationSelect }: LocationSearchProps) {
@@ -85,7 +85,8 @@ export function LocationSearch({ onLocationSelect }: LocationSearchProps) {
                 <li key={`${res.id}-${res.latitude}-${res.longitude}-${index}`}>
                   <button
                     onClick={() => {
-                      onLocationSelect(res.latitude, res.longitude, res.name);
+                      const stateStr = [res.admin2, res.admin1].filter(Boolean).join(', ');
+                      onLocationSelect(res.latitude, res.longitude, res.name, stateStr);
                       setQuery('');
                       setIsOpen(false);
                     }}
@@ -94,7 +95,7 @@ export function LocationSearch({ onLocationSelect }: LocationSearchProps) {
                     <div className="flex flex-col">
                       <span className="text-zinc-100 font-medium text-sm">{res.name}</span>
                       <span className="text-zinc-500 text-[10px] uppercase font-mono tracking-wider">
-                        {res.admin1 ? `${res.admin1}, ` : ''}{res.country}
+                        {[res.admin2, res.admin1, res.country].filter(Boolean).join(', ')}
                       </span>
                     </div>
                     <MapPin className="h-4 w-4 text-zinc-700 group-hover:text-sky-500 transition-colors" />

@@ -20,9 +20,9 @@ export function useHotkeys(configs: HotkeyConfig[]) {
 
       configs.forEach(config => {
         const matchesKey = event.key.toLowerCase() === config.key.toLowerCase();
-        const matchesAlt = config.altKey ? event.altKey : true;
-        const matchesCtrl = config.ctrlKey ? event.ctrlKey : true;
-        const matchesShift = config.shiftKey ? event.shiftKey : true;
+        const matchesAlt = !!config.altKey === event.altKey;
+        const matchesCtrl = !!config.ctrlKey === event.ctrlKey;
+        const matchesShift = !!config.shiftKey === event.shiftKey;
 
         if (matchesKey && matchesAlt && matchesCtrl && matchesShift) {
           event.preventDefault();

@@ -8,5 +8,31 @@
   "theme_color": "#0284c7",
   "dir": "ltr",
   "lang": "en-US",
-  "orientation": "portrait"
+  "orientation": "portrait",
+  "categories": ["weather", "accessibility", "utilities"],
+  "shortcuts": [
+    {
+      "name": "Storm Scanner",
+      "url": "/?action=scan",
+      "icons": [{ "src": "https://cdn-icons-png.flaticon.com/512/252/252035.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Lightning Alerts",
+      "url": "/?action=lightning",
+      "icons": [{ "src": "https://cdn-icons-png.flaticon.com/512/252/252035.png", "sizes": "192x192" }]
+    }
+  ],
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/252/252035.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/252/252035.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
 }

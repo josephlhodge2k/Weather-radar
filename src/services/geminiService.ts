@@ -25,8 +25,25 @@ export async function sendMessage(
       precipitation: `${weather.current.precipitation} inches`,
       wind: `${weather.current.windSpeed10m}mph`,
       wind_direction_deg: weather.current.windDirection10m,
-      alerts: weather.alerts?.map(a => a.event)
-    }) : 'Location unknown'}
+      alerts: weather.alerts?.map(a => a.event),
+      historical_last_year: weather.historical ? `High ${weather.historical.tempMax}F, Low ${weather.historical.tempMin}F` : 'Not available',
+      all_time_records: weather.historical?.recordMax ? `Max: ${weather.historical.recordMax}F (${weather.historical.recordMaxYear}), Min: ${weather.historical.recordMin}F (${weather.historical.recordMinYear})` : 'Not available',
+      forecast_daily: weather.daily?.time?.map((t, i) => ({
+        date: t,
+        max: `${weather.daily.temperature2mMax[i]}°F`,
+        min: `${weather.daily.temperature2mMin[i]}°F`,
+        condition: getWeatherDescription(weather.daily.weatherCode[i]),
+        precip_prob: (weather.hourly?.precipitationProbability && (i * 24) < weather.hourly.precipitationProbability.length) 
+          ? `${weather.hourly.precipitationProbability[i * 24]}%` 
+          : 'Check report'
+      })).slice(0, 10) || [],
+      forecast_hourly_next_12: weather.hourly?.time?.map((t, i) => ({
+        time: t,
+        temp: `${weather.hourly.temperature2m[i]}°F`,
+        precip_prob: `${weather.hourly.precipitationProbability[i]}%`,
+        condition: getWeatherDescription(weather.hourly.weatherCode[i])
+      })).slice(0, 12) || []
+    }, null, 2) : 'Location unknown'}
     
     Key Instructions:
     1. Always use descriptive language. Instead of "it's raining", say "there is a steady light rain falling right now".
@@ -34,30 +51,30 @@ export async function sendMessage(
     3. Be empathetic and professional.
     4. Keep responses relatively short so they are easy to listen to.
     5. If asked about radar, interpret the data provided: if precipitation is > 0, tell them how intense it is and which way it is moving (use wind_direction_deg as a guide for cardinal directions like North, East etc).
+    6. Use the forecast data to answer questions about tomorrow or the upcoming week. If a user asks "will it rain tomorrow", check the daily and hourly forecast entries for tomorrow's date.
   `;
 
   try {
-    // Convert history to Gemini format
-    const contents = history.map(msg => ({
-      role: msg.role === 'user' ? 'user' : 'model',
-      parts: [{ text: msg.text }]
-    }));
+    const contents = [
+      ...history.map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'model',
+        parts: [{ text: msg.text }]
+      })),
+      {
+        role: 'user',
+        parts: [{ text: message }]
+      }
+    ];
 
-    // Add current message
-    contents.push({
-      role: 'user',
-      parts: [{ text: message }]
-    });
-
-    const result = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
       contents,
       config: {
         systemInstruction,
-      }
+      },
     });
 
-    return result.text || "I'm sorry, I couldn't process that.";
+    return response.text || "I'm sorry, I couldn't process that.";
   } catch (error) {
     console.error("Gemini Error:", error);
     return "I'm having trouble connecting to my weather brain right now. I'll be back as soon as the signal clears.";

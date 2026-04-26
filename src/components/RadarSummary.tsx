@@ -24,12 +24,12 @@ export function RadarSummary({ weather }: RadarSummaryProps) {
 
   return (
     <div className="bg-zinc-950 border-2 border-zinc-800 rounded-3xl p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h3 className="text-zinc-100 font-bold flex items-center gap-2">
-          <Radar className="w-5 h-5 text-emerald-400 animate-pulse" />
-          Radar Insights
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-zinc-400 text-xs font-bold uppercase tracking-widest flex items-center gap-2">
+          <Radar className="w-4 h-4 text-emerald-400" />
+          Proximity Alert
         </h3>
-        <span className="bg-emerald-500/10 text-emerald-400 text-[10px] px-2 py-1 rounded-full font-mono uppercase">Live Data</span>
+        <span className="text-[9px] font-mono text-emerald-500/70">RADAR ACTIVE</span>
       </div>
 
       <div className="space-y-4">
@@ -39,8 +39,8 @@ export function RadarSummary({ weather }: RadarSummaryProps) {
             <Zap className={isLightningRisk ? "w-6 h-6 text-yellow-500 animate-bounce" : "w-6 h-6 text-zinc-600"} />
           </div>
           <div className="flex-1">
-            <h4 className="text-sm font-bold text-zinc-100">Lightning Status</h4>
-            <p className="text-xs text-zinc-400 leading-relaxed">
+            <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Atmospheric Discharge</h4>
+            <p className="text-xs text-zinc-300 leading-relaxed">
               {isLightningRisk 
                 ? `WARNING: Local lightning activity detected. Storm cells are approaching from the ${windDir}.` 
                 : "No significant lightning strikes recorded in your immediate vicinity."}
@@ -54,8 +54,8 @@ export function RadarSummary({ weather }: RadarSummaryProps) {
             <Droplets className={currentRain > 0 || isNearbyRain ? "w-6 h-6 text-blue-400 animate-pulse" : "w-6 h-6 text-zinc-600"} />
           </div>
           <div className="flex-1">
-            <h4 className="text-sm font-bold text-zinc-100">Near Percipitation</h4>
-            <p className="text-xs text-zinc-400 leading-relaxed">
+            <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Moisture Density</h4>
+            <p className="text-xs text-zinc-300 leading-relaxed">
               {currentRain > 0 
                 ? `Active precipitation: ${currentRain} inches recorded. Storm systems moving from the ${windDir}.` 
                 : isNearbyRain 
@@ -66,11 +66,6 @@ export function RadarSummary({ weather }: RadarSummaryProps) {
         </div>
       </div>
 
-      <div className="pt-4 border-t border-zinc-800">
-        <p className="text-[10px] font-mono text-zinc-600 text-center uppercase tracking-widest">
-          Aura Accessibility System • v1.0
-        </p>
-      </div>
     </div>
   );
 }
